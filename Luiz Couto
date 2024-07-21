@@ -1,0 +1,265 @@
+use [Target.TesteDB]
+
+
+--1Crie uma query que obtenha a lista de produtos (ProductName), e a quantidade por unidade (QuantityPerUnit);
+select distinct ProductName,QuantityPerUnit
+from [dbo].[Products] with(nolock)
+order by 1 
+--2Crie uma query que obtenha a lista de produtos ativos (ProductID e ProductName);
+select distinct ProductID , ProductName
+from [dbo].[Products] with(nolock)
+order by 1
+--3 Crie uma query que obtenha a lista de produtos descontinuados (ProductID e ProductName);
+select distinct ProductID , ProductName
+from [dbo].[Products] with(nolock)
+where Discontinued= 1 
+order by 1
+--4Crie uma query que obtenha a lista de produtos 
+--(ProductID, ProductName, UnitPrice) ativos, onde o custo dos produtos são menores que $20;
+select distinct ProductID , ProductName,UnitPrice
+from [dbo].[Products] with(nolock)
+where Discontinued= 0 and UnitPrice <20 
+order by 1
+--5Crie uma query que obtenha a lista de produtos (ProductID, ProductName, UnitPrice) ativos, 
+--onde o custo dos produtos são entre $15 e $25;
+select distinct ProductID , ProductName,UnitPrice
+from [dbo].[Products] with(nolock)
+where Discontinued= 0 and UnitPrice between 15 and 25 
+order by 1
+--6 Crie uma query que obtenha a lista de produtos (ProductName, UnitPrice) que tem preço acima da média;
+--comsubselect
+select distinct ProductID , ProductName,UnitPrice
+from [dbo].[Products] with(nolock)
+where Discontinued= 0 and UnitPrice > (select avg(UnitPrice) from  [dbo].[Products] with(nolock) where Discontinued= 0 )
+order by 1
+---com variavel 
+declare @avg money =  (select avg(UnitPrice) from  [dbo].[Products] with(nolock) where Discontinued= 0 )
+select distinct ProductID , ProductName,UnitPrice
+from [dbo].[Products] with(nolock)
+where Discontinued= 0 and UnitPrice >@avg
+order by 1
+
+--7 Crie uma procedure que retorne cada produto e seu preço
+CREATE PROCEDURE proc_lista_produto
+AS
+BEGIN
+    SELECT DISTINCT ProductID, ProductName, UnitPrice
+    FROM [dbo].[Products] WITH (NOLOCK);
+END;
+--testando a procedure exec proc_lista_produto
+--dicione à procedure, criada na questão anterior,
+--os parâmetros 'Codigo_Fornecedor' (permitindo escolher 1 ou mais) e
+--'Codigo_Categoria' (permitindo escolher 1 ou mais) e
+--altere-a para atender a passagem desses parâmetros;
+alter PROCEDURE proc_lista_produto
+    @SupplierIDs NVARCHAR(MAX),
+    @CategoryIDs NVARCHAR(MAX)
+AS
+BEGIN
+    SELECT DISTINCT ProductID, ProductName, UnitPrice
+    FROM [dbo].[Products] WITH (NOLOCK)
+    WHERE SupplierID IN (SELECT value FROM STRING_SPLIT(@SupplierIDs, ','))
+      AND CategoryID IN (SELECT value FROM STRING_SPLIT(@CategoryIDs, ','));
+END;
+--testando a procedure EXEC proc_lista_produto @SupplierIDs = '1,2,3', @CategoryIDs = '1';
+
+--Adicione à procedure,
+--criada na questão anterior,
+--o parâmetro 'Codigo_Transportadora' (permitindo escolher 1 ou mais)
+--e um outro parâmetro 'Tipo_Saida' para se optar por uma saída OLTP (Transacional) ou OLAP (Pivot).
+
+--- aqui tivemos uma mudanca, como so tem trasnportadoras pra pedidos vinculado a uma order  passamos a utilizar dados de tabelas alem da tabela de produtos.
+
+ALTER PROCEDURE proc_lista_produto
+    @SupplierIDs NVARCHAR(MAX),
+    @CategoryIDs NVARCHAR(MAX),
+    @ShippersIDs NVARCHAR(MAX),
+    @Tipo_Saida NVARCHAR(10) -- 'OLTP' or 'OLAP'
+AS
+BEGIN
+    IF @Tipo_Saida = 'OLTP'
+    BEGIN
+        SELECT DISTINCT od.ProductID, p.ProductName, od.UnitPrice
+        FROM [dbo].Shippers s WITH (NOLOCK)
+        JOIN [dbo].Orders o WITH (NOLOCK) ON s.ShipperID = o.ShipVia
+        JOIN [dbo].[Order Details] od WITH (NOLOCK) ON od.OrderID = o.OrderID
+        JOIN [dbo].[Products] p WITH (NOLOCK) ON od.ProductID = p.ProductID
+        WHERE p.SupplierID IN (SELECT value FROM STRING_SPLIT(@SupplierIDs, ','))
+          AND p.CategoryID IN (SELECT value FROM STRING_SPLIT(@CategoryIDs, ','))
+          AND s.ShipperID IN (SELECT value FROM STRING_SPLIT(@ShippersIDs, ','));
+    END
+    ELSE IF @Tipo_Saida = 'OLAP'
+    BEGIN
+        SELECT 
+            p.ProductName,
+            SUM(od.UnitPrice * od.Quantity) AS TotalSales,
+            COUNT(DISTINCT o.OrderID) AS OrderCount
+        FROM [dbo].Shippers s WITH (NOLOCK)
+        JOIN [dbo].Orders o WITH (NOLOCK) ON s.ShipperID = o.ShipVia
+        JOIN [dbo].[Order Details] od WITH (NOLOCK) ON od.OrderID = o.OrderID
+        JOIN [dbo].[Products] p WITH (NOLOCK) ON od.ProductID = p.ProductID
+        WHERE p.SupplierID IN (SELECT value FROM STRING_SPLIT(@SupplierIDs, ','))
+          AND p.CategoryID IN (SELECT value FROM STRING_SPLIT(@CategoryIDs, ','))
+          AND s.ShipperID IN (SELECT value FROM STRING_SPLIT(@ShippersIDs, ','))
+        GROUP BY p.ProductName;
+    END
+END;
+
+
+--testando a procedure
+-- Para saída OLTP
+EXEC proc_lista_produto @SupplierIDs = '1,2,3', @CategoryIDs = '1,2,4,5', @ShippersIDs = '1,6,7', @Tipo_Saida = 'OLTP';
+
+-- Para saída OLAP
+EXEC proc_lista_produto @SupplierIDs = '1,2,3', @CategoryIDs = '1,2,4,5', @ShippersIDs = '1,6,7', @Tipo_Saida = 'OLAP';
+
+
+-- 8 Crie uma query que obtenha a lista de empregados e seus liderados, 
+--caso o empregado não possua liderado, informar 'Não possui liderados'.
+
+select 
+ee.FirstName empregados,
+e.FirstName liderados
+
+
+from Employees as e  with (nolock)
+join  Employees as ee  with (nolock) on e.ReportsTo=ee.EmployeeID
+
+union 
+select FirstName,'Não possui liderados'  from Employees
+where EmployeeID not in (select distinct ReportsTo from Employees where ReportsTo is not null )
+
+--9 Crie uma query que obtenha o(s) produto(s) mais caro(s) e o(s) mais barato(s) da lista (ProductName e UnitPrice);
+
+-- Produtos mais caros
+SELECT ProductName, UnitPrice, 'Mais Caro' AS Tipo
+FROM [dbo].[Products] WITH (NOLOCK)
+WHERE UnitPrice = (SELECT MAX(UnitPrice) FROM [dbo].[Products] WITH (NOLOCK))
+
+UNION ALL
+
+SELECT ProductName, UnitPrice, 'Mais Barato' AS Tipo
+FROM [dbo].[Products] WITH (NOLOCK)
+WHERE UnitPrice = (SELECT MIN(UnitPrice) FROM [dbo].[Products] WITH (NOLOCK));
+
+--10 Crie uma query que obtenha a lista de pedidos dos funcionários da região 'Western';
+
+select distinct Orders.OrderID
+ from Employees
+ join Orders on orders.EmployeeID = Employees.EmployeeID
+join EmployeeTerritories on Employees.EmployeeID=EmployeeTerritories.EmployeeID
+join Territories on Territories.TerritoryID=EmployeeTerritories.TerritoryID
+join Region on Region.RegionID = Territories.RegionID
+where RegionDescription ='Western'
+	
+	--11Crie uma query que obtenha os números de pedidos 
+	--e a lista de clientes (CompanyName, ContactName, Address e Phone), que possuam 171 como código de área do telefone
+	--e que o frete dos pedidos custem entre $6.00 e $13.00;
+
+	select orders.OrderID,CompanyName, ContactName, Address , Phone 
+	from orders with (nolock)
+	join customers  with (nolock) on orders.CustomerID = Customers.CustomerID
+	where left(phone,5) ='(171)' and Freight between 6 and 13 
+
+--12Crie uma query que obtenha todos os dados de pedidos (Orders)
+--que envolvam os fornecedores da cidade 'Manchester'
+--e foram enviados pela empresa 'Speedy Express';
+
+select distinct o.*
+		from [dbo].Orders o WITH (NOLOCK)
+        JOIN [dbo].[Order Details] od WITH (NOLOCK) ON od.OrderID = o.OrderID
+        JOIN [dbo].[Products] p WITH (NOLOCK) ON od.ProductID = p.ProductID
+        join [dbo].[Suppliers] s WITH (NOLOCK) on s.SupplierID = p.SupplierID
+		join [dbo].Shippers sh WITH (NOLOCK) on sh.ShipperID = o.ShipVia
+where s.City= 'Manchester' and sh.CompanyName = 'Speedy Express'
+
+--Crie uma query que obtenha a lista de Produtos (ProductName)
+--constantes nos Detalhe dos Pedidos (Order Details), 
+--calculando o valor  total de cada produto já aplicado o desconto % (se tiver algum);
+
+select ProductName,(od.UnitPrice*Quantity)*(1-Discount)as [valor total]
+from [dbo].Orders o WITH (NOLOCK)
+JOIN [dbo].[Order Details] od WITH (NOLOCK) ON od.OrderID = o.OrderID
+join [dbo].[Products] p WITH (NOLOCK) ON od.ProductID =p.ProductID
+
+
+-------------------------------------------------
+Questões complementares:
+Tem conhecimento em processos e ferramentas de ETL? Quantos anos de experiência? Quais cases foram aplicados?
+Sim, já utilizei SSIS e Alteryx como ferramentas de ETL, além de Python e SQL para processos ETL. Trabalho com ETL e bancos de dados há mais de 8 anos.
+
+Tenho experiência em cases de automação de relatórios, criação de dashboards e automação de processos utilizando ETL. Um exemplo é a construção de um dashboard de apuração de resultados por operador, que envolveu os seguintes passos:
+
+Captura das metas disponibilizadas em rede em arquivos CSV.
+Normalização dos dados dos arquivos de meta.
+Bulk insert dos dados para o SQL Server.
+Configuração de linked server para os bancos de produção.
+Criação das tabelas de dimensão, stage e fato para a apuração de resultados.
+Apresentação dos resultados em um dashboard, utilizando as tabelas de fatos resultantes.
+
+
+---
+
+
+Tem experiência com ferramental Azure Data Factory?
+Nao.
+------
+
+Pode responder em um fluxograma (ou escrito em tópicos) um case de ETL onde:
+Parte dos dados da origem estão em banco de dados Oracle e outra em CSV no Storage Bucket da AWS
+O dado final deverá estar na base de dados SQL Server.
+Deverá acontecer validação da entrada dos dados da origem.
+Validação dos dados finais que foram processados.
+Cálculos dos dados de origem, para geração de indicadores (que serão os dados finais).
+
+
+Fonte 1: Banco de Dados Oracle
+Conectar ao banco de dados Oracle usando um conector apropriado.(linked server)
+Extrair os dados necessários através de consultas SQL.
+
+Fonte 2: Arquivo CSV no Storage Bucket da AWS
+Configurar acesso ao AWS S3 Storage Bucket.
+Ler o arquivo CSV usando bibliotecas apropriadas (ex: pandas, boto3). , se possivel realizar bulk do arquivo via sql 
+2. Validação da Entrada de Dados
+Validação dos Dados do Oracle
+Verificar a integridade ,Checar se há valores nulos em campos obrigatórios. Confirmar a conformidade com tipos de dados esperados.
+criar gatilhos para aviso quando os dados estiverem fora do esperado 
+Validação dos Dados do CSV
+Verificar se o arquivo está presente no bucket S3.Validar a estrutura do arquivo (colunas, tipos de dados, etc.).
+criar gatilhos para aviso quando os dados estiverem fora do esperado 
+Verificar se há valores nulos em campos obrigatórios.
+3. Transformação
+Limpeza de Dados
+Remover registros duplicados.
+Tratar valores nulos (remoção ou imputação de dados).
+Normalizar formatos (datas, moedas, etc.).
+4. Carga
+apos os as conexoes estabelecidas inserir os dados finais que serao feitas os calculo dos indicadores 
+5. calculo dos indicadores
+criar os procedimento para os calculos dos indicadores para as tabelas finais
+7-validacoes finais 
+Verificar se todos os registros foram inseridos corretamente.
+Conferir a integridade referencial no banco de dados SQL Server.
+Confirmar a conformidade dos tipos de dados.
+Validação de Indicadores
+Checar se os indicadores calculados estão corretos.
+Comparar os resultados  expectativas.
+7. Documentação e Manutenção
+Documentação
+Documentar todas as etapas do processo ETL.
+Manter um histórico de mudanças e atualizações no processo.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
